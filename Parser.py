@@ -77,7 +77,10 @@ class Parser:
     def generate_epoch(self, measurements):
         epoch = 0
         num_sats = 0
-        while num_sats < 5 and epoch < measurements['Epoch'].max():
+        max_epoch = measurements['Epoch'].max()
+        one_epoch = pd.DataFrame()
+        
+        while num_sats < 5 and epoch <= max_epoch:
             one_epoch = measurements.loc[(measurements['Epoch'] == epoch) & (measurements['pseudorange_seconds'] < 0.1)].drop_duplicates(subset='satPRN')
             if one_epoch.empty:
                 epoch += 1
