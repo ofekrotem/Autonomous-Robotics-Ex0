@@ -2,6 +2,7 @@ import csv
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
+from scipy.optimize import least_squares
 from empheris_manager import EphemerisManager
 import simplekml
 
@@ -148,22 +149,15 @@ class Parser:
         sv_position['Sat.Z'] = y_k_prime * np.sin(i_k)
         return sv_position
     
+    def residuals(self, x, xs, measured_pseudorange):
+        r = np.linalg.norm(xs - x[:3], axis=1)
+        return measured_pseudorange - (r + x[3])
+    
     def least_squares(self, xs, measured_pseudorange, x0, b0):
-        dx = 100 * np.ones(3)
-        b = b0
-        G = np.ones((measured_pseudorange.size, 4))
-        while np.linalg.norm(dx) > 1e-3:
-            r = np.linalg.norm(xs - x0, axis=1)
-            phat = r + b0
-            deltaP = measured_pseudorange - phat
-            G[:, 0:3] = -(xs - x0) / r[:, None]
-            sol = np.linalg.inv(np.transpose(G) @ G) @ np.transpose(G) @ deltaP
-            dx = sol[0:3]
-            db = sol[3]
-            x0 = x0 + dx
-            b0 = b0 + db
-        norm_dp = np.linalg.norm(deltaP)
-        return x0, b0, norm_dp
+        x_initial = np.hstack((x0, b0))
+        result = least_squares(self.residuals, x_initial, args=(xs, measured_pseudorange))
+        x_final = result.x
+        return x_final[:3], x_final[3], result.cost
 
     def create_kml_file(self, coords, output_file):
         kml = simplekml.Kml()
