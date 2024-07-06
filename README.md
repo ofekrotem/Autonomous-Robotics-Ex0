@@ -1,27 +1,35 @@
-# GNSS Data Transmission Setup
+## GNSS Data Transmission Setup
 
 This project involves an Android application and a Python server for collecting and processing live raw GNSS data to calculate the precise location of the Android device.
 
 ## Overview
 
-The system consists of two main components:
+The system consists of three main components:
 
-1. **Android Application**: Collects raw GNSS measurements and navigation messages from the device's GNSS receiver and sends this data to a Python server.
-  [Link to Android Repo](https://github.com/ofekrotem/Raw-GNSS-data-app) 
+1. **Android Application**: Collects raw GNSS measurements and navigation messages from the device's GNSS receiver and sends this data to a Python server. 
 2. **Python Server**: Receives the GNSS data, parses it, and calculates the precise location of the Android device using the provided GNSS measurements and navigation messages.
-[Link to Python Server with parsing abilities](https://github.com/ofekrotem/Live-Location-From-Gnss-data)
+3. **GNSS Data Viewer**: A Python-based graphical interface using Pygame to visualize the latest GNSS data and calculated positions.
 
+[Link to Android Repo](https://github.com/ofekrotem/Raw-GNSS-data-app) 
+
+
+[Link to Python Server with parsing abilities and UI](https://github.com/ofekrotem/Live-Location-From-Gnss-data)
 ## Android Application
+Screenshot from app:
 
+
+![Screenshot from app](https://github.com/ofekrotem/Live-Location-From-Gnss-data/assets/92383710/a7fbad5b-8a79-472f-b47f-9058bfce9990)
 ### Features
 
 - Collects raw GNSS measurements including pseudorange rates, satellite IDs, signal-to-noise ratios, and other relevant data.
 - Transmits GNSS data to the Python server in real-time.
 
+
 ### Key Components
 
 - **GNSS Measurements Collection**: Utilizes the Android GNSS API to gather raw measurements.
 - **Data Transmission**: Sends the collected data to the Python server using a socket connection.
+
 
 ### Permissions
 
@@ -29,6 +37,7 @@ Ensure the following permissions are included in your `AndroidManifest.xml`:
 
 - `ACCESS_FINE_LOCATION`
 - `INTERNET`
+
 
 ### Data Format
 
@@ -65,11 +74,13 @@ GNSS data is sent as JSON objects with the following structure:
 - Parses the incoming data and extracts relevant GNSS measurements.
 - Calculates the precise location of the Android device using GNSS algorithms.
 
+
 ### Key Components
 
 - **Data Reception**: Listens for incoming data from the Android application on a specified port.
 - **Data Parsing**: Converts the received JSON data into a format suitable for GNSS calculations.
 - **Location Calculation**: Implements algorithms to process the GNSS measurements and compute the device's location.
+
 
 ### Data Reception
 
@@ -98,13 +109,41 @@ The position calculation from GNSS data involves several key algorithms and proc
    - The final position is refined using a least squares estimation method to minimize the residual errors between the measured and predicted pseudoranges.
 
 
+## GNSS Data Viewer
+
+### Features
+
+- A graphical user interface built using Pygame to display the latest GNSS data and calculated positions.
+- Fetches and displays data from the Python server in real-time.
+
+### Key Components
+
+- **Data Fetching**: Periodically requests the latest GNSS data from the server.
+- **Display**: Renders the fetched data on the screen, including raw measurements and calculated positions.
+- **Scrolling**: Supports vertical scrolling to view all data.
+
+### Usage
+
+1. Ensure the Python server is running and accessible.
+2. Run the `parserUI.py` script to start the GNSS Data Viewer.
+3. Use the mouse wheel to scroll through the displayed data.
+
+### Example Data Display
+
+The viewer displays the latest received GNSS measurements and the last calculated position, with the ability to scroll through the data if it exceeds the screen space.
+
+### Error Handling
+
+The viewer logs any errors encountered while fetching data, ensuring continuous operation even if data retrieval fails temporarily.
+
+
 ## Setup and Execution
 
 ### Prerequisites
 
 - Android Studio for developing and deploying the Android application.
 - Python 3.x for running the server-side scripts.
-
+- Pygame library for the GNSS Data Viewer.
 
 ### Steps to Run the Project
 
@@ -119,6 +158,11 @@ The position calculation from GNSS data involves several key algorithms and proc
    - Ensure all necessary dependencies are installed (e.g., `socket` library for networking).
    - Run the server script to start listening for incoming GNSS data.
    - Monitor the server logs to verify data reception and processing.
+
+3. **GNSS Data Viewer**:
+   - Install the Pygame library: `pip install pygame`.
+   - Run the `parserUI.py` script to start the GNSS Data Viewer.
+   - View the latest GNSS measurements and calculated positions in the graphical interface.
 
 
 ### Logs
@@ -144,12 +188,14 @@ Calculated position: (32.10117827996274, 35.20480623590327)
 ```
 
 
+
 ## Troubleshooting
 
 - Ensure the Android device has a clear view of the sky for optimal GNSS signal reception.
 - Verify network connectivity between the Android device and the Python server.
 - Check for any permission-related issues on the Android device.
 - Validate the data format and handle any parsing errors in the server script.
+- Ensure the Pygame library is properly installed for the GNSS Data Viewer.
 
 
 ## Future Enhancements
@@ -157,3 +203,4 @@ Calculated position: (32.10117827996274, 35.20480623590327)
 - Implement advanced GNSS algorithms for improved location accuracy.
 - Add support for additional GNSS constellations (e.g., GLONASS, Galileo).
 - Enhance the Android application with a user interface to display real-time location data.
+- Improve the GNSS Data Viewer with additional visualization options and user controls.
