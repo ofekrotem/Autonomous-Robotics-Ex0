@@ -1,92 +1,87 @@
-import sys
-import os
 import csv
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
-import navpy
+from scipy.optimize import least_squares
 from empheris_manager import EphemerisManager
 import simplekml
-from filterpy.kalman import KalmanFilter as FilterPyKalmanFilter
-
-parent_directory = os.path.split(os.getcwd())[0]
-ephemeris_data_directory = os.path.join(parent_directory, 'data')
-sys.path.insert(0, parent_directory)
-input_filepath = os.path.join(parent_directory, 'Autonomous-Robotics-Ex0', 'data', 'kahir_gnss_log_2024_05_06_21_24_38.txt')
-gpsepoch = datetime(1980, 1, 6, 0, 0, 0)
-WEEKSEC = 604800
-LIGHTSPEED = 2.99792458e8
-manager = EphemerisManager(ephemeris_data_directory)
 
 class Parser:
-    def __init__(self):
-        pass
-
+    LIGHTSPEED = 2.99792458e8
+    WEEKSEC = 604800
+    
+    def __init__(self, ephemeris_data_directory):
+        self.manager = EphemerisManager(ephemeris_data_directory)
+        self.gpsepoch = datetime(1980, 1, 6, 0, 0, 0)
+    
     def open_file(self, filepath):
         with open(filepath) as csvfile:
-            reader = csv.reader(csvfile)
-            android_fixes = []
-            measurements = []
-            for row in reader:
-                if row[0][0] == '#':
-                    if 'Fix' in row[0]:
-                        android_fixes.append(row[1:])
-                    elif 'Raw' in row[0]:
-                        measurements.append(row[1:])
-                else:
-                    if row[0] == 'Fix':
-                        android_fixes.append(row[1:])
-                    elif row[0] == 'Raw':
-                        measurements.append(row[1:])
-
-        measurements = pd.DataFrame(measurements[1:], columns=measurements[0])
+            reader = csv.DictReader(csvfile)
+            measurements = [row for row in reader]
+        measurements = pd.DataFrame(measurements)
         return measurements
 
     def formatDF(self, measurements):
-        measurements.loc[measurements['Svid'].str.len() == 1, 'Svid'] = '0' + measurements['Svid']
-        measurements.loc[measurements['ConstellationType'] == '1', 'Constellation'] = 'G'
-        measurements.loc[measurements['ConstellationType'] == '3', 'Constellation'] = 'R'
+        if measurements.empty:
+            print("No measurements to process.")
+            return measurements
+        
+        required_columns = ['svid', 'constellationType', 'timeNanos', 'fullBiasNanos', 'receivedSvTimeNanos', 
+                            'pseudorangeRateMetersPerSecond', 'receivedSvTimeUncertaintyNanos', 'cn0DbHz']
+        
+        for column in required_columns:
+            if column not in measurements.columns:
+                print(f"Missing required column: {column}")
+                return pd.DataFrame()
+        
+        measurements['Svid'] = measurements['svid'].apply(lambda x: f"{int(x):02d}")
+        measurements.loc[measurements['constellationType'] == '1', 'Constellation'] = 'G'
+        measurements.loc[measurements['constellationType'] == '3', 'Constellation'] = 'R'
         measurements['satPRN'] = measurements['Constellation'] + measurements['Svid']
 
         measurements = measurements.loc[measurements['Constellation'] == 'G']
 
-        measurements['Cn0DbHz'] = pd.to_numeric(measurements['Cn0DbHz'])
-        measurements['TimeNanos'] = pd.to_numeric(measurements['TimeNanos'])
-        measurements['FullBiasNanos'] = pd.to_numeric(measurements['FullBiasNanos'])
-        measurements['ReceivedSvTimeNanos'] = pd.to_numeric(measurements['ReceivedSvTimeNanos'])
-        measurements['PseudorangeRateMetersPerSecond'] = pd.to_numeric(measurements['PseudorangeRateMetersPerSecond'])
-        measurements['ReceivedSvTimeUncertaintyNanos'] = pd.to_numeric(measurements['ReceivedSvTimeUncertaintyNanos'])
+        measurements['Cn0DbHz'] = pd.to_numeric(measurements['cn0DbHz'])
+        measurements['TimeNanos'] = pd.to_numeric(measurements['timeNanos'])
+        measurements['FullBiasNanos'] = pd.to_numeric(measurements['fullBiasNanos'])
+        measurements['ReceivedSvTimeNanos'] = pd.to_numeric(measurements['receivedSvTimeNanos'])
+        measurements['PseudorangeRateMetersPerSecond'] = pd.to_numeric(measurements['pseudorangeRateMetersPerSecond'])
+        measurements['ReceivedSvTimeUncertaintyNanos'] = pd.to_numeric(measurements['receivedSvTimeUncertaintyNanos'])
+        measurements['BiasNanos'] = pd.to_numeric(measurements.get('biasNanos', 0))
+        measurements['TimeOffsetNanos'] = pd.to_numeric(measurements.get('timeOffsetNanos', 0))
 
-        if 'BiasNanos' in measurements.columns:
-            measurements['BiasNanos'] = pd.to_numeric(measurements['BiasNanos'])
-        else:
-            measurements['BiasNanos'] = 0
-        if 'TimeOffsetNanos' in measurements.columns:
-            measurements['TimeOffsetNanos'] = pd.to_numeric(measurements['TimeOffsetNanos'])
-        else:
-            measurements['TimeOffsetNanos'] = 0
-
+        if measurements.empty or measurements['FullBiasNanos'].isna().any() or measurements['BiasNanos'].isna().any():
+            print("Missing bias data in measurements.")
+            return pd.DataFrame()
+        
         measurements['GpsTimeNanos'] = measurements['TimeNanos'] - (measurements['FullBiasNanos'] - measurements['BiasNanos'])
-        measurements['UnixTime'] = pd.to_datetime(measurements['GpsTimeNanos'], utc=True, origin=gpsepoch)
+        measurements['UnixTime'] = pd.to_datetime(measurements['GpsTimeNanos'], utc=True, origin=self.gpsepoch)
 
         measurements['Epoch'] = 0
         measurements.loc[measurements['UnixTime'] - measurements['UnixTime'].shift() > timedelta(milliseconds=200), 'Epoch'] = 1
         measurements['Epoch'] = measurements['Epoch'].cumsum()
 
-        measurements['gnss_receive_time_nanoseconds'] = measurements['TimeNanos'] + measurements['TimeOffsetNanos'] - (measurements['FullBiasNanos'].iloc[0] + measurements['BiasNanos'].iloc[0])
-        measurements['GpsWeekNumber'] = np.floor(1e-9 * measurements['gnss_receive_time_nanoseconds'] / WEEKSEC)
-        measurements['time_since_reference'] = 1e-9 * measurements['gnss_receive_time_nanoseconds'] - WEEKSEC * measurements['GpsWeekNumber']
+        if len(measurements) > 0:
+            measurements['gnss_receive_time_nanoseconds'] = measurements['TimeNanos'] + measurements['TimeOffsetNanos'] - (measurements['FullBiasNanos'].iloc[0] + measurements['BiasNanos'].iloc[0])
+        else:
+            measurements['gnss_receive_time_nanoseconds'] = np.nan
+
+        measurements['GpsWeekNumber'] = np.floor(1e-9 * measurements['gnss_receive_time_nanoseconds'] / self.WEEKSEC)
+        measurements['time_since_reference'] = 1e-9 * measurements['gnss_receive_time_nanoseconds'] - self.WEEKSEC * measurements['GpsWeekNumber']
         measurements['transmit_time_seconds'] = 1e-9 * (measurements['ReceivedSvTimeNanos'] + measurements['TimeOffsetNanos'])
 
         measurements['pseudorange_seconds'] = measurements['time_since_reference'] - measurements['transmit_time_seconds']
-        measurements['Pseudorange_Measurement'] = LIGHTSPEED * measurements['pseudorange_seconds']
+        measurements['Pseudorange_Measurement'] = self.LIGHTSPEED * measurements['pseudorange_seconds']
 
         return measurements
 
     def generate_epoch(self, measurements):
         epoch = 0
         num_sats = 0
-        while num_sats < 5:
+        max_epoch = measurements['Epoch'].max()
+        one_epoch = pd.DataFrame()
+        
+        while num_sats < 5 and epoch <= max_epoch:
             one_epoch = measurements.loc[(measurements['Epoch'] == epoch) & (measurements['pseudorange_seconds'] < 0.1)].drop_duplicates(subset='satPRN')
             if one_epoch.empty:
                 epoch += 1
@@ -96,8 +91,11 @@ class Parser:
             num_sats = len(one_epoch.index)
             epoch += 1
 
+        if one_epoch.empty:
+            return pd.DataFrame(), pd.DataFrame()
+
         sats = one_epoch.index.unique().tolist()
-        ephemeris = manager.get_ephemeris(timestamp, sats)
+        ephemeris = self.manager.get_ephemeris(timestamp, sats)
 
         return one_epoch, ephemeris
     
@@ -151,22 +149,15 @@ class Parser:
         sv_position['Sat.Z'] = y_k_prime * np.sin(i_k)
         return sv_position
     
+    def residuals(self, x, xs, measured_pseudorange):
+        r = np.linalg.norm(xs - x[:3], axis=1)
+        return measured_pseudorange - (r + x[3])
+    
     def least_squares(self, xs, measured_pseudorange, x0, b0):
-        dx = 100 * np.ones(3)
-        b = b0
-        G = np.ones((measured_pseudorange.size, 4))
-        while np.linalg.norm(dx) > 1e-3:
-            r = np.linalg.norm(xs - x0, axis=1)
-            phat = r + b0
-            deltaP = measured_pseudorange - phat
-            G[:, 0:3] = -(xs - x0) / r[:, None]
-            sol = np.linalg.inv(np.transpose(G) @ G) @ np.transpose(G) @ deltaP
-            dx = sol[0:3]
-            db = sol[3]
-            x0 = x0 + dx
-            b0 = b0 + db
-        norm_dp = np.linalg.norm(deltaP)
-        return x0, b0, norm_dp
+        x_initial = np.hstack((x0, b0))
+        result = least_squares(self.residuals, x_initial, args=(xs, measured_pseudorange))
+        x_final = result.x
+        return x_final[:3], x_final[3], result.cost
 
     def create_kml_file(self, coords, output_file):
         kml = simplekml.Kml()
@@ -174,62 +165,3 @@ class Parser:
             lat, lon, alt = coord
             kml.newpoint(name="", coords=[(lon, lat, alt)])
         kml.save(output_file)
-
-if __name__ == '__main__':
-    parser = Parser()
-    measurements = parser.open_file(input_filepath)
-    measurements = parser.formatDF(measurements)
-    one_epoch, ephemeris = parser.generate_epoch(measurements)
-    sv_position = parser.calculate_satellite_position(ephemeris, one_epoch['transmit_time_seconds'])
-    sv_position["pseudorange"] = measurements["Pseudorange_Measurement"] + LIGHTSPEED * sv_position['Sat.bias']
-    sv_position["cn0"] = measurements["Cn0DbHz"]
-    sv_position = sv_position.drop('Sat.bias', axis=1)
-    sv_position.to_csv(os.path.join(parent_directory, 'Autonomous-Robotics-Ex0', 'results', 'output_xyz.csv'))
-    print(sv_position)
-
-    b0 = 0
-    x0 = np.array([0, 0, 0])
-    xs = sv_position[['Sat.X', 'Sat.Y', 'Sat.Z']].to_numpy()
-    x = x0
-    b = b0
-    ecef_list = []
-
-    dim_x = 3  # Dimension of state vector (position in 3D)
-    dim_z = 3  # Dimension of measurement vector (position in 3D)
-    Q = np.eye(dim_x) * 0.1  # Process noise covariance
-    R = np.eye(dim_z) * 1  # Measurement noise covariance
-    P = np.eye(dim_x) * 10  # Initial estimate error covariance
-    kf = FilterPyKalmanFilter(dim_x=dim_x, dim_z=dim_z)
-    kf.Q = Q
-    kf.R = R
-    kf.P = P
-    kf.F = np.eye(dim_x)
-    kf.H = np.eye(dim_z, dim_x)
-
-    for epoch in measurements['Epoch'].unique():
-        one_epoch = measurements.loc[(measurements['Epoch'] == epoch) & (measurements['pseudorange_seconds'] < 0.1)]
-        one_epoch = one_epoch.drop_duplicates(subset='satPRN').set_index('satPRN')
-        if len(one_epoch.index) > 4:
-            timestamp = one_epoch.iloc[0]['UnixTime'].to_pydatetime(warn=False)
-            sats = one_epoch.index.unique().tolist()
-            ephemeris = manager.get_ephemeris(timestamp, sats)
-            sv_position = parser.calculate_satellite_position(ephemeris, one_epoch['transmit_time_seconds'])
-
-            xs = sv_position[['Sat.X', 'Sat.Y', 'Sat.Z']].to_numpy()
-            pr = one_epoch['Pseudorange_Measurement'] + LIGHTSPEED * sv_position['Sat.bias']
-            pr = pr.to_numpy()
-
-            x, b, _ = parser.least_squares(xs, pr, x, b)
-            kf.predict()
-            kf.update(x.reshape(dim_z, 1))
-            ecef_list.append(kf.x.flatten())
-
-    lla = [navpy.ecef2lla(coord) for coord in ecef_list]
-    output_file = "coordinates.kml"
-
-    parser.create_kml_file(lla, output_file)
-    with open('lla_coordinates.csv', 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(['Pos.X', 'Pos.Y', 'Pos.Z', 'Lat', 'Lon', 'Alt'])
-        for ecef_coord, lla_coord in zip(ecef_list, lla):
-            writer.writerow([e for e in ecef_coord] + [lla_coord[0], lla_coord[1], lla_coord[2]])
