@@ -12,6 +12,10 @@ The system consists of two main components:
 [Link to Python Server with parsing abilities](https://github.com/ofekrotem/Live-Location-From-Gnss-data)
 
 ## Android Application
+Screenshot from app:
+
+
+![Screenshot from app](https://github.com/ofekrotem/Live-Location-From-Gnss-data/assets/92383710/a7fbad5b-8a79-472f-b47f-9058bfce9990)
 
 ### Features
 
