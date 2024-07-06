@@ -110,6 +110,10 @@ The position calculation from GNSS data involves several key algorithms and proc
 
 
 ## GNSS Data Viewer
+Screenshot from UI:
+
+![Screenshot from parser ui](https://github.com/ofekrotem/Live-Location-From-Gnss-data/assets/92383710/b040f1e8-a376-4ba4-85de-5e3e985cbb4d)
+
 
 ### Features
 
