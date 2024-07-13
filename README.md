@@ -1,35 +1,34 @@
 ## GNSS Data Transmission Setup
 
-This project involves an Android application and a Python server for collecting and processing live raw GNSS data to calculate the precise location of the Android device.
+This project involves an Android application and a Python server for collecting and processing live raw GNSS data to calculate the precise location of the Android device while detecting spoofed satellites and disruptions.
 
 ## Overview
 
 The system consists of three main components:
 
-1. **Android Application**: Collects raw GNSS measurements and navigation messages from the device's GNSS receiver and sends this data to a Python server. 
-2. **Python Server**: Receives the GNSS data, parses it, and calculates the precise location of the Android device using the provided GNSS measurements and navigation messages.
+1. **Android Application**: Collects raw GNSS measurements and navigation messages from the device's GNSS receiver and sends this data to a Python server.
+2. **Python Server**: Receives the GNSS data, parses it, calculates the precise location of the Android device, detects spoofed satellites, and calculates the position excluding spoofed satellites using data from multiple GNSS constellations.
 3. **GNSS Data Viewer**: A Python-based graphical interface using Pygame to visualize the latest GNSS data and calculated positions.
 
-[Link to Android Repo](https://github.com/ofekrotem/Raw-GNSS-data-app) 
-
+[Link to Android Repo](https://github.com/ofekrotem/Raw-GNSS-data-app)
 
 [Link to Python Server with parsing abilities and UI](https://github.com/ofekrotem/Live-Location-From-Gnss-data)
+
+
 ## Android Application
 Screenshot from app:
 
-
 ![Screenshot from app](https://github.com/ofekrotem/Live-Location-From-Gnss-data/assets/92383710/a7fbad5b-8a79-472f-b47f-9058bfce9990)
+
 ### Features
 
 - Collects raw GNSS measurements including pseudorange rates, satellite IDs, signal-to-noise ratios, and other relevant data.
 - Transmits GNSS data to the Python server in real-time.
 
-
 ### Key Components
 
 - **GNSS Measurements Collection**: Utilizes the Android GNSS API to gather raw measurements.
 - **Data Transmission**: Sends the collected data to the Python server using a socket connection.
-
 
 ### Permissions
 
@@ -37,7 +36,6 @@ Ensure the following permissions are included in your `AndroidManifest.xml`:
 
 - `ACCESS_FINE_LOCATION`
 - `INTERNET`
-
 
 ### Data Format
 
@@ -64,8 +62,10 @@ GNSS data is sent as JSON objects with the following structure:
   "timeOffsetNanos": 0.0,
   "state": 16431
 }
-```
 
+
+
+```md
 ## Python Server
 
 ### Features
@@ -73,19 +73,21 @@ GNSS data is sent as JSON objects with the following structure:
 - Receives GNSS data from the Android application.
 - Parses the incoming data and extracts relevant GNSS measurements.
 - Calculates the precise location of the Android device using GNSS algorithms.
-
+- Detects spoofed satellites and excludes them from position calculations.
+- Supports multiple GNSS constellations (GPS, GLONASS, Galileo, QZSS, BeiDou).
+- Selects the most accurate position calculation based on data from multiple constellations.
 
 ### Key Components
 
 - **Data Reception**: Listens for incoming data from the Android application on a specified port.
 - **Data Parsing**: Converts the received JSON data into a format suitable for GNSS calculations.
 - **Location Calculation**: Implements algorithms to process the GNSS measurements and compute the device's location.
-
+- **Spoofing Detection**: Identifies and excludes spoofed satellites from position calculations.
+- **Constellation Comparison**: Calculates positions for each GNSS constellation and selects the most accurate one.
 
 ### Data Reception
 
 Ensure the server is set to listen on the correct port and can handle multiple incoming connections if necessary. The server should validate the received data format and handle any potential errors or inconsistencies.
-
 
 ### Position Calculation Algorithms
 
@@ -108,12 +110,20 @@ The position calculation from GNSS data involves several key algorithms and proc
 5. **Least Squares Estimation**:
    - The final position is refined using a least squares estimation method to minimize the residual errors between the measured and predicted pseudoranges.
 
+6. **Spoofing Detection**:
+   - Identifies spoofed satellites based on deviations in pseudorange and C/N0 values.
+   - Excludes spoofed satellites from position calculations.
+
+7. **Constellation Comparison**:
+   - Calculates positions for each GNSS constellation separately.
+   - Compares the calculated positions and selects the one closest to the average of all calculations.
+
+
 
 ## GNSS Data Viewer
 Screenshot from UI:
 
 ![Screenshot from parser ui](https://github.com/ofekrotem/Live-Location-From-Gnss-data/assets/92383710/b040f1e8-a376-4ba4-85de-5e3e985cbb4d)
-
 
 ### Features
 
@@ -159,7 +169,7 @@ The viewer logs any errors encountered while fetching data, ensuring continuous 
 
 2. **Python Server**:
    - Set up a Python environment.
-   - Ensure all necessary dependencies are installed (e.g., `socket` library for networking).
+   - Ensure all necessary dependencies are installed (e.g., `flask` for networking).
    - Run the server script to start listening for incoming GNSS data.
    - Monitor the server logs to verify data reception and processing.
 
@@ -192,7 +202,6 @@ Calculated position: (32.10117827996274, 35.20480623590327)
 ```
 
 
-
 ## Troubleshooting
 
 - Ensure the Android device has a clear view of the sky for optimal GNSS signal reception.
@@ -205,6 +214,6 @@ Calculated position: (32.10117827996274, 35.20480623590327)
 ## Future Enhancements
 
 - Implement advanced GNSS algorithms for improved location accuracy.
-- Add support for additional GNSS constellations (e.g., GLONASS, Galileo).
+- Add support for additional GNSS constellations (e.g., NavIC).
 - Enhance the Android application with a user interface to display real-time location data.
 - Improve the GNSS Data Viewer with additional visualization options and user controls.
