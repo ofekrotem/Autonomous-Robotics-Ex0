@@ -62,10 +62,8 @@ GNSS data is sent as JSON objects with the following structure:
   "timeOffsetNanos": 0.0,
   "state": 16431
 }
+```
 
-
-
-```md
 ## Python Server
 
 ### Features
