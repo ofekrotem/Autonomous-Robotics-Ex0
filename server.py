@@ -23,27 +23,27 @@ fields = ['svid', 'codeType', 'timeNanos', 'biasNanos', 'constellationType', 'sv
 # Global variables to store the latest data
 latest_measurement = None
 latest_position = None
+latest_spoofed_sats = None
 
 @app.route('/latest_data', methods=['GET'])
 def latest_data():
     return jsonify({
         "measurement": latest_measurement,
-        "position": latest_position
+        "position": latest_position,
+        "spoofed_satellites": latest_spoofed_sats
     })
 
 @app.route('/gnssdata', methods=['POST'])
 def receive_gnss_data():
-    global latest_measurement, latest_position
+    global latest_measurement, latest_position, latest_spoofed_sats
     measurements = request.get_json()
     print("Received GNSS measurements:", measurements)
     
     if not measurements:
         return jsonify({"status": "failure", "error": "No measurements received"}), 400
     
-    # Update the latest measurement
     latest_measurement = measurements[-1] if measurements else None
 
-    # Save the data to a CSV file
     with open(data_file, 'w', newline='') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fields)
         writer.writeheader()
@@ -51,22 +51,24 @@ def receive_gnss_data():
             filtered_measurement = {key: measurement.get(key, None) for key in fields}
             writer.writerow(filtered_measurement)
     
-    # Process the data with the parser
-    parser = Parser(data_directory)  # Initialize Parser with ephemeris data directory
+    parser = Parser(data_directory)
     measurements = parser.open_file(data_file)
     measurements = parser.formatDF(measurements)
     
     if measurements.empty:
+        print("Error: No valid measurements after formatting")
         return jsonify({"status": "failure", "error": "No valid measurements after formatting"}), 400
     
     one_epoch, ephemeris = parser.generate_epoch(measurements)
     
     if one_epoch.empty or ephemeris.empty:
+        print("Error: No valid epoch or ephemeris data")
         return jsonify({"status": "failure", "error": "No valid epoch or ephemeris data"}), 400
     
     sv_position = parser.calculate_satellite_position(ephemeris, one_epoch['transmit_time_seconds'])
     
     if sv_position.empty:
+        print("Error: No valid satellite position data")
         return jsonify({"status": "failure", "error": "No valid satellite position data"}), 400
     
     sv_position["pseudorange"] = one_epoch["Pseudorange_Measurement"] + parser.LIGHTSPEED * sv_position['Sat.bias']
@@ -75,9 +77,17 @@ def receive_gnss_data():
     sv_position.to_csv(os.path.join(data_directory, 'output_xyz.csv'))
     print(sv_position)
 
-    # Calculate user's position
-    xs = sv_position[['Sat.X', 'Sat.Y', 'Sat.Z']].to_numpy()
-    pr = one_epoch['Pseudorange_Measurement'].to_numpy()
+    spoofed_sats = parser.detect_spoofing(sv_position)
+    non_spoofed_svs = sv_position.drop(spoofed_sats)
+
+    latest_spoofed_sats = spoofed_sats.index.tolist()
+
+    if len(non_spoofed_svs) < 4:
+        print("Error: Not enough satellites to calculate position after excluding spoofed satellites")
+        return jsonify({"status": "failure", "error": "Not enough satellites to calculate position after excluding spoofed satellites"}), 400
+
+    xs = non_spoofed_svs[['Sat.X', 'Sat.Y', 'Sat.Z']].to_numpy()
+    pr = non_spoofed_svs['pseudorange'].to_numpy()
     x0 = np.array([0, 0, 0])
     b0 = 0
     try:
@@ -85,7 +95,7 @@ def receive_gnss_data():
         lla = navpy.ecef2lla(x)
         latest_position = lla
         print(f"Calculated position: {lla}")
-        return jsonify({"status": "success", "position": lla}), 200
+        return jsonify({"status": "success", "position": lla, "spoofed_satellites": latest_spoofed_sats}), 200
     except np.linalg.LinAlgError:
         print("Singular matrix encountered. Skipping this calculation.")
         return jsonify({"status": "failure", "error": "Singular matrix encountered"}), 400

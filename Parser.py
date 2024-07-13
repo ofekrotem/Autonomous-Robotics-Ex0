@@ -165,3 +165,19 @@ class Parser:
             lat, lon, alt = coord
             kml.newpoint(name="", coords=[(lon, lat, alt)])
         kml.save(output_file)
+
+    def detect_spoofing(self, sv_position):
+        # - Pseudorange measurements that deviate significantly from the median
+        # - Satellites with unusually low or high C/N0 values
+        pseudorange_median = sv_position['pseudorange'].median()
+        deviation_threshold = 1e7
+        cn0_threshold_low = 20 
+        cn0_threshold_high = 55
+        
+        spoofed_sats = sv_position[
+            (abs(sv_position['pseudorange'] - pseudorange_median) > deviation_threshold) |
+            (sv_position['cn0'] < cn0_threshold_low) |
+            (sv_position['cn0'] > cn0_threshold_high)
+        ]
+        
+        return spoofed_sats
