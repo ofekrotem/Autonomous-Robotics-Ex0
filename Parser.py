@@ -37,9 +37,10 @@ class Parser:
         measurements['Svid'] = measurements['svid'].apply(lambda x: f"{int(x):02d}")
         measurements.loc[measurements['constellationType'] == '1', 'Constellation'] = 'G'
         measurements.loc[measurements['constellationType'] == '3', 'Constellation'] = 'R'
+        measurements.loc[measurements['constellationType'] == '4', 'Constellation'] = 'E'
+        measurements.loc[measurements['constellationType'] == '6', 'Constellation'] = 'C'
+        measurements.loc[measurements['constellationType'] == '5', 'Constellation'] = 'J'
         measurements['satPRN'] = measurements['Constellation'] + measurements['Svid']
-
-        measurements = measurements.loc[measurements['Constellation'] == 'G']
 
         measurements['Cn0DbHz'] = pd.to_numeric(measurements['cn0DbHz'])
         measurements['TimeNanos'] = pd.to_numeric(measurements['timeNanos'])
@@ -171,8 +172,8 @@ class Parser:
         # - Satellites with unusually low or high C/N0 values
         pseudorange_median = sv_position['pseudorange'].median()
         deviation_threshold = 1e7
-        cn0_threshold_low = 20 
-        cn0_threshold_high = 55
+        cn0_threshold_low = 20
+        cn0_threshold_high = 55  
         
         spoofed_sats = sv_position[
             (abs(sv_position['pseudorange'] - pseudorange_median) > deviation_threshold) |

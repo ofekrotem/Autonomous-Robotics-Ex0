@@ -59,49 +59,68 @@ def receive_gnss_data():
         print("Error: No valid measurements after formatting")
         return jsonify({"status": "failure", "error": "No valid measurements after formatting"}), 400
     
-    one_epoch, ephemeris = parser.generate_epoch(measurements)
-    
-    if one_epoch.empty or ephemeris.empty:
-        print("Error: No valid epoch or ephemeris data")
-        return jsonify({"status": "failure", "error": "No valid epoch or ephemeris data"}), 400
-    
-    sv_position = parser.calculate_satellite_position(ephemeris, one_epoch['transmit_time_seconds'])
-    
-    if sv_position.empty:
-        print("Error: No valid satellite position data")
-        return jsonify({"status": "failure", "error": "No valid satellite position data"}), 400
-    
-    sv_position["pseudorange"] = one_epoch["Pseudorange_Measurement"] + parser.LIGHTSPEED * sv_position['Sat.bias']
-    sv_position["cn0"] = one_epoch["Cn0DbHz"]
-    sv_position = sv_position.drop('Sat.bias', axis=1)
-    sv_position.to_csv(os.path.join(data_directory, 'output_xyz.csv'))
-    print(sv_position)
+    results = {}
+    positions = []
+    constellations = measurements['constellationType'].unique()
 
-    spoofed_sats = parser.detect_spoofing(sv_position)
-    non_spoofed_svs = sv_position.drop(spoofed_sats)
+    for constellation in constellations:
+        one_epoch, ephemeris = parser.generate_epoch(measurements[measurements['constellationType'] == constellation])
+        
+        if one_epoch.empty or ephemeris.empty:
+            print(f"Error: No valid epoch or ephemeris data for constellation {constellation}")
+            continue
+        
+        sv_position = parser.calculate_satellite_position(ephemeris, one_epoch['transmit_time_seconds'])
+        
+        if sv_position.empty:
+            print(f"Error: No valid satellite position data for constellation {constellation}")
+            continue
+        
+        sv_position["pseudorange"] = one_epoch["Pseudorange_Measurement"] + parser.LIGHTSPEED * sv_position['Sat.bias']
+        sv_position["cn0"] = one_epoch["Cn0DbHz"]
+        sv_position = sv_position.drop('Sat.bias', axis=1)
 
-    latest_spoofed_sats = spoofed_sats.index.tolist()
+        spoofed_sats = parser.detect_spoofing(sv_position)
+        non_spoofed_svs = sv_position.drop(spoofed_sats)
 
-    if len(non_spoofed_svs) < 4:
-        print("Error: Not enough satellites to calculate position after excluding spoofed satellites")
-        return jsonify({"status": "failure", "error": "Not enough satellites to calculate position after excluding spoofed satellites"}), 400
+        if len(non_spoofed_svs) < 4:
+            print(f"Error: Not enough satellites to calculate position for constellation {constellation} after excluding spoofed satellites")
+            continue
 
-    xs = non_spoofed_svs[['Sat.X', 'Sat.Y', 'Sat.Z']].to_numpy()
-    pr = non_spoofed_svs['pseudorange'].to_numpy()
-    x0 = np.array([0, 0, 0])
-    b0 = 0
-    try:
-        x, b, _ = parser.least_squares(xs, pr, x0, b0)
-        lla = navpy.ecef2lla(x)
-        latest_position = lla
-        print(f"Calculated position: {lla}")
-        return jsonify({"status": "success", "position": lla, "spoofed_satellites": latest_spoofed_sats}), 200
-    except np.linalg.LinAlgError:
-        print("Singular matrix encountered. Skipping this calculation.")
-        return jsonify({"status": "failure", "error": "Singular matrix encountered"}), 400
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return jsonify({"status": "failure", "error": str(e)}), 400
+        xs = non_spoofed_svs[['Sat.X', 'Sat.Y', 'Sat.Z']].to_numpy()
+        pr = non_spoofed_svs['pseudorange'].to_numpy()
+        x0 = np.array([0, 0, 0])
+        b0 = 0
+        try:
+            x, b, _ = parser.least_squares(xs, pr, x0, b0)
+            lla = navpy.ecef2lla(x)
+            results[constellation] = {
+                "position": lla,
+                "spoofed_satellites": spoofed_sats.index.tolist()
+            }
+            positions.append(lla)
+        except np.linalg.LinAlgError:
+            print(f"Singular matrix encountered for constellation {constellation}. Skipping this calculation.")
+            continue
+        except Exception as e:
+            print(f"An error occurred for constellation {constellation}: {e}")
+            continue
+
+    if not positions:
+        return jsonify({"status": "failure", "error": "No valid position calculations"}), 400
+
+    avg_position = np.mean(positions, axis=0)
+    best_constellation = min(results.keys(), key=lambda k: np.linalg.norm(np.array(results[k]["position"]) - avg_position))
+
+    latest_position = results[best_constellation]["position"]
+    latest_spoofed_sats = results[best_constellation]["spoofed_satellites"]
+
+    return jsonify({
+        "status": "success",
+        "position": latest_position,
+        "spoofed_satellites": latest_spoofed_sats,
+        "best_constellation": best_constellation
+    }), 200
 
 @app.route('/gnssnavdata', methods=['POST'])
 def receive_gnss_navdata():
